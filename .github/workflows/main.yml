@@ -50,6 +50,14 @@ env:
 jobs:
   init:
     runs-on: ubuntu-latest
+    outputs:
+      service_name: ${{ steps.init_info.outputs.service_name }}
+      service_version: ${{ steps.init_info.outputs.service_version }}
+      release_name: ${{ steps.init_info.outputs.release_name }}
+      # Pass the calculated MS_NAME to other jobs if needed
+      ms_name: ${{ steps.init_info.outputs.ms_name }}
+      # Pass PUSHED_IMAGE only if SKIP_BUILD == YES path is taken
+      pushed_image_retrieved: ${{ steps.retrieve_image.outputs.pushed_image_retrieved 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
