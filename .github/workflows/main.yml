@@ -30,6 +30,18 @@ on:
         description: 'Define the market code that will be appended to the version in the release name.'
         required: false
         type: string
+      mavenBuildCommand: 
+        description: 'Override maven build command'
+        required: false
+        type: string
+      mavenTestCommand: 
+        description: 'Override maven test command'
+        required: false
+        type: string
+      mavenJacocoCommand: 
+        description: 'Override maven jacoco command'
+        required: false
+        type: string
 
 env:
   # Global environment variables that can be derived at the start or are constant
@@ -99,31 +111,54 @@ jobs:
           echo "service_version=$SERVICE_VERSION" >> "$GITHUB_OUTPUT"
           echo "release_name=$RELEASE_NAME" >> "$GITHUB_OUTPUT"
           echo "ms_name=$MAVEN_ARTIFACT_ID" >> "$GITHUB_OUTPUT"
-  build_and_test:
-    needs: init # This job depends on the init job to get service info
-    if: ${{ github.event.inputs.SKIP_BUILD != 'YES' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+build_and_test:
+  needs: init
+  if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.SKIP_BUILD != 'YES' }}
+  runs-on: ubuntu-latest
 
-      - name: Set up JDK 11
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '11'
-          cache: 'maven'
+  env:
+    DEFAULT_MAVEN_BUILD_COMMAND: clean package -DskipTests
+    DEFAULT_MAVEN_TEST_COMMAND: test
+    DEFAULT_MAVEN_JACOCO_COMMAND: jacoco:report
 
-      - name: Decode Maven settings.xml
-        run: |
-          mkdir -p ~/.m2
-          echo "${{ env.MAVEN_SETTINGS_XML_BASE64 }}" | base64 -d > ~/.m2/settings.xml
 
-      - name: Maven Build (clean package -DskipTests)
-        run: mvn -s ~/.m2/settings.xml clean package -DskipTests
+  steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-      - name: Maven Test
-        run: mvn -s ~/.m2/settings.xml test
+    - name: Set up JDK 11
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '11'
+        cache: 'maven'
 
-      - name: Jacoco Report
-        run: mvn -s ~/.m2/settings.xml jacoco:report
+    - name: Decode Maven settings.xml
+      run: |
+        mkdir -p ~/.m2
+        echo "${{ env.MAVEN_SETTINGS_XML_BASE64 }}" | base64 -d > ~/.m2/settings.xml
+
+    - name: Set Maven Command
+      id: maven_config
+      run: |
+        # Check if override is passed as MAVEN_COMMAND via env or inputs
+        MAVEN_BUILD_COMMAND="${{ github.event.inputs.mavenBuildCommand || env.DEFAULT_MAVEN_BUILD_COMMAND }}"
+        MAVEN_TEST_COMMAND="${{ github.event.inputs.mavenTestCommand || env.DEFAULT_MAVEN_TEST_COMMAND}}"
+        MAVEN_JACOCO_COMMAND="${{ github.event.inputs.mavenJacocoCommand || env.DEFAULT_MAVEN_JACOCO_COMMAND }}"
+
+        echo "MAVEN_BUILD_COMMAND=$MAVEN_BUILD_COMMAND"
+        echo "maven_build_command=$MAVEN_BUILD_COMMAND" >> $GITHUB_OUTPUT
+        echo "MAVEN_TEST_COMMAND=$MAVEN_TEST_COMMAND"
+        echo "maven_test_command=$MAVEN_TEST_COMMAND" >> $GITHUB_OUTPUT
+        echo "MAVEN_JACOCO_COMMAND=$MAVEN_JACOCO_COMMAND"
+        echo "maven_jacoco_command=$MAVEN_JACOCO_COMMAND" >> $GITHUB_OUTPUT
+
+    - name: Run Maven Build
+      run: mvn -s ~/.m2/settings.xml ${{ steps.maven_config.outputs.maven_build_command }}
+
+    - name: Run Tests
+      run: mvn -s ~/.m2/settings.xml ${{ steps.maven_config.outputs.maven_test_command }}
+
+    - name: Generate JaCoCo Report
+      run: mvn -s ~/.m2/settings.xml ${{ steps.maven_config.outputs.maven_jacoco_command }}
+
