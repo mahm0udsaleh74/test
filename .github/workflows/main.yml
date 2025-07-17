@@ -7,7 +7,6 @@ on:
       - build_ga
   pull_request:
     branches:
-      # Include PRs if you want CI checks on them, but deployments would still be branch-triggered
       - develop
       - staging
       - build_ga
@@ -44,121 +43,89 @@ on:
         type: string
 
 env:
-  # Global environment variables that can be derived at the start or are constant
-  CONFIG_FOLDER: ${{ github.event.repository.name }} # Often derived from artifactId, but using repo name as a default placeholder
-  CURRENT_KUBERNETES_NAMESPACE: ${{ secrets.K8S_NAMESPACE }} # Should be a secret
-  # IE_GHE_SVC is used directly in clone/push, no need to be a global env var if passed via `env:` in steps
-  MAVEN_SETTINGS_XML_BASE64: ${{ secrets.MAVEN_SETTINGS_XML_BASE64 }} # This MUST be set as a repository secret
+  CONFIG_FOLDER: ${{ github.event.repository.name }}
+  CURRENT_KUBERNETES_NAMESPACE: ${{ secrets.K8S_NAMESPACE }}
+  MAVEN_SETTINGS_XML_BASE64: ${{ secrets.MAVEN_SETTINGS_XML_BASE64 }}
 
 jobs:
   init:
     runs-on: ubuntu-latest
-    #outputs:
-    #  service_name: ${{ steps.init_info.outputs.service_name }}
-    #  service_version: ${{ steps.init_info.outputs.service_version }}
-    #  release_name: ${{ steps.init_info.outputs.release_name }}
-      # Pass the calculated MS_NAME to other jobs if needed
-    #  ms_name: ${{ steps.init_info.outputs.ms_name }}
-      # Pass PUSHED_IMAGE only if SKIP_BUILD == YES path is taken
-    #  pushed_image_retrieved: ${{ steps.retrieve_image.outputs.pushed_image_retrieved }}
-
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4 # Use latest stable version
+        uses: actions/checkout@v4
 
       - name: Set up JDK 11 for Maven Info
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '11'
-          cache: 'maven' # Cache Maven dependencies
+          cache: 'maven'
 
       - name: Init - Get Maven Project Info and Define Variables
-        id: init_info # Unique ID for this step
+        id: init_info
         run: |
-          # Create a dummy settings.xml for maven help:evaluate if the real one isn't needed yet
-          # Or decode the real one if mvn help:evaluate needs it for a real project
           echo "${{ env.MAVEN_SETTINGS_XML_BASE64 }}" | base64 -d > ~/.m2/settings.xml
-
           MAVEN_ARTIFACT_ID=$(mvn help:evaluate -Dexpression=project.artifactId -q -DforceStdout)
           MAVEN_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-
-          # Use provided inputs or fallback to Maven info
           SERVICE_NAME="${{ inputs.serviceName || '' }}"
           if [ -z "$SERVICE_NAME" ]; then SERVICE_NAME="$MAVEN_ARTIFACT_ID"; fi
-
           SERVICE_VERSION="${{ inputs.serviceVersion || '' }}"
           if [ -z "$SERVICE_VERSION" ]; then SERVICE_VERSION="$MAVEN_VERSION"; fi
-
           if [ -z "$SERVICE_NAME" ] || [ -z "$SERVICE_VERSION" ]; then
             echo "::error::Unknown Maven variables: SERVICE_NAME or SERVICE_VERSION could not be determined."
             exit 1
           fi
-
           CONTRIBUTOR="${{ inputs.contributor || '' }}"
           RELEASE_NAME="$SERVICE_NAME-$SERVICE_VERSION"
           if [ ! -z "$CONTRIBUTOR" ]; then
             RELEASE_NAME="${RELEASE_NAME}-$CONTRIBUTOR"
           fi
-
-          echo "SERVICE_NAME=$SERVICE_NAME"
-          echo "SERVICE_VERSION=$SERVICE_VERSION"
-          echo "RELEASE_NAME=$RELEASE_NAME"
-          echo "MS_NAME=$MAVEN_ARTIFACT_ID" # Assuming MS_NAME is the artifactId
-
-          # Set outputs for other jobs
           echo "service_name=$SERVICE_NAME" >> "$GITHUB_OUTPUT"
           echo "service_version=$SERVICE_VERSION" >> "$GITHUB_OUTPUT"
           echo "release_name=$RELEASE_NAME" >> "$GITHUB_OUTPUT"
           echo "ms_name=$MAVEN_ARTIFACT_ID" >> "$GITHUB_OUTPUT"
-build_and_test:
-  needs: init
-  if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.SKIP_BUILD != 'YES' }}
-  runs-on: ubuntu-latest
 
-  env:
-    DEFAULT_MAVEN_BUILD_COMMAND: clean package -DskipTests
-    DEFAULT_MAVEN_TEST_COMMAND: test
-    DEFAULT_MAVEN_JACOCO_COMMAND: jacoco:report
+  build_and_test:
+    needs: init
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.SKIP_BUILD != 'YES' }}
+    runs-on: ubuntu-latest
+    env:
+      DEFAULT_MAVEN_BUILD_COMMAND: clean package -DskipTests
+      DEFAULT_MAVEN_TEST_COMMAND: test
+      DEFAULT_MAVEN_JACOCO_COMMAND: jacoco:report
 
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-  steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      - name: Set up JDK 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+          cache: 'maven'
 
-    - name: Set up JDK 11
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: '11'
-        cache: 'maven'
+      - name: Decode Maven settings.xml
+        run: |
+          mkdir -p ~/.m2
+          echo "${{ env.MAVEN_SETTINGS_XML_BASE64 }}" | base64 -d > ~/.m2/settings.xml
 
-    - name: Decode Maven settings.xml
-      run: |
-        mkdir -p ~/.m2
-        echo "${{ env.MAVEN_SETTINGS_XML_BASE64 }}" | base64 -d > ~/.m2/settings.xml
+      - name: Set Maven Command
+        id: maven_config
+        run: |
+          MAVEN_BUILD_COMMAND="${{ github.event.inputs.mavenBuildCommand || env.DEFAULT_MAVEN_BUILD_COMMAND }}"
+          MAVEN_TEST_COMMAND="${{ github.event.inputs.mavenTestCommand || env.DEFAULT_MAVEN_TEST_COMMAND }}"
+          MAVEN_JACOCO_COMMAND="${{ github.event.inputs.mavenJacocoCommand || env.DEFAULT_MAVEN_JACOCO_COMMAND }}"
 
-    - name: Set Maven Command
-      id: maven_config
-      run: |
-        # Check if override is passed as MAVEN_COMMAND via env or inputs
-        MAVEN_BUILD_COMMAND="${{ github.event.inputs.mavenBuildCommand || env.DEFAULT_MAVEN_BUILD_COMMAND }}"
-        MAVEN_TEST_COMMAND="${{ github.event.inputs.mavenTestCommand || env.DEFAULT_MAVEN_TEST_COMMAND}}"
-        MAVEN_JACOCO_COMMAND="${{ github.event.inputs.mavenJacocoCommand || env.DEFAULT_MAVEN_JACOCO_COMMAND }}"
+          echo "maven_build_command=$MAVEN_BUILD_COMMAND" >> $GITHUB_OUTPUT
+          echo "maven_test_command=$MAVEN_TEST_COMMAND" >> $GITHUB_OUTPUT
+          echo "maven_jacoco_command=$MAVEN_JACOCO_COMMAND" >> $GITHUB_OUTPUT
 
-        echo "MAVEN_BUILD_COMMAND=$MAVEN_BUILD_COMMAND"
-        echo "maven_build_command=$MAVEN_BUILD_COMMAND" >> $GITHUB_OUTPUT
-        echo "MAVEN_TEST_COMMAND=$MAVEN_TEST_COMMAND"
-        echo "maven_test_command=$MAVEN_TEST_COMMAND" >> $GITHUB_OUTPUT
-        echo "MAVEN_JACOCO_COMMAND=$MAVEN_JACOCO_COMMAND"
-        echo "maven_jacoco_command=$MAVEN_JACOCO_COMMAND" >> $GITHUB_OUTPUT
+      - name: Run Maven Build
+        run: mvn -s ~/.m2/settings.xml ${{ steps.maven_config.outputs.maven_build_command }}
 
-    - name: Run Maven Build
-      run: mvn -s ~/.m2/settings.xml ${{ steps.maven_config.outputs.maven_build_command }}
+      - name: Run Tests
+        run: mvn -s ~/.m2/settings.xml ${{ steps.maven_config.outputs.maven_test_command }}
 
-    - name: Run Tests
-      run: mvn -s ~/.m2/settings.xml ${{ steps.maven_config.outputs.maven_test_command }}
-
-    - name: Generate JaCoCo Report
-      run: mvn -s ~/.m2/settings.xml ${{ steps.maven_config.outputs.maven_jacoco_command }}
-
+      - name: Generate JaCoCo Report
+        run: mvn -s ~/.m2/settings.xml ${{ steps.maven_config.outputs.maven_jacoco_command }}
