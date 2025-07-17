@@ -101,7 +101,7 @@ jobs:
           echo "ms_name=$MAVEN_ARTIFACT_ID" >> "$GITHUB_OUTPUT"
   build_and_test:
     needs: init # This job depends on the init job to get service info
-    if: ${{ github.event.inputs.SKIP_BUILD == 'NO' }}
+    if: ${{ github.event.inputs.SKIP_BUILD != 'YES' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
