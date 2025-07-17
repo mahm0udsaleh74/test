@@ -93,6 +93,12 @@ jobs:
           echo "release_name=$RELEASE_NAME" >> "$GITHUB_OUTPUT"
           echo "ms_name=$MAVEN_ARTIFACT_ID" >> "$GITHUB_OUTPUT"
 
+
+          echo "SERVICE_NAME: $SERVICE_NAME"
+          echo "SERVICE_VERSION: $SERVICE_VERSION"
+          echo "RELEASE_NAME: $RELEASE_NAME"
+          echo "MS_NAME: $MAVEN_ARTIFACT_ID"
+
   build_and_test:
     needs: init
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.SKIP_BUILD != 'YES' }}
