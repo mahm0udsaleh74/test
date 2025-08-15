@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Maven Init & Build
-        uses: ./.github/actions/maven-init-build
+        uses: ./.github/actions/init
         with:
           SKIP_BUILD: "NO"
         env:
