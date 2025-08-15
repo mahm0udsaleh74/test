@@ -1,0 +1,59 @@
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - staging
+      - build_ga
+  pull_request:
+    branches:
+      - develop
+      - staging
+      - build_ga
+  workflow_dispatch:
+    inputs:
+      SKIP_BUILD:
+        description: 'Skip the build steps and deploy the configmap only?'
+        type: choice
+        options: ['NO', 'YES']
+        default: 'NO'
+      serviceName:
+        description: 'Override service name (from Maven artifactId by default)'
+        required: false
+        type: string
+      serviceVersion:
+        description: 'Override service version (from Maven project version by default)'
+        required: false
+        type: string
+      contributor:
+        description: 'Define the market code that will be appended to the version in the release name.'
+        required: false
+        type: string
+      mavenBuildCommand: 
+        description: 'Override maven build command'
+        required: false
+        type: string
+      mavenTestCommand: 
+        description: 'Override maven test command'
+        required: false
+        type: string
+      mavenJacocoCommand: 
+        description: 'Override maven jacoco command'
+        required: false
+        type: string
+
+env:
+  CONFIG_FOLDER: ${{ github.event.repository.name }}
+  CURRENT_KUBERNETES_NAMESPACE: ${{ secrets.K8S_NAMESPACE }}
+  MAVEN_SETTINGS_XML_BASE64: ${{ secrets.MAVEN_SETTINGS_XML_BASE64 }}
+
+jobs:
+  maven:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Maven Init & Build
+        uses: ./.github/actions/maven-init-build
+        with:
+          SKIP_BUILD: "NO"
+        env:
+          MAVEN_SETTINGS_XML_BASE64: ${{ secrets.MAVEN_SETTINGS_XML_BASE64 }}
