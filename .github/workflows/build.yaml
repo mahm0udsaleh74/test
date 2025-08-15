@@ -54,6 +54,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Checkout Repository
+        run: ls
+
       - name: Maven Init & Build
         uses: ./.github/actions/init
         with:
